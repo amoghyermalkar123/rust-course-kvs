@@ -16,4 +16,4 @@ Future scope (above and beyond the course) -
 
 
 Link to the course (It's amazing, do check it out if you love distributed systems) -
-Course - https://github.com/pingcap/talent-plan
+https://github.com/pingcap/talent-plan
