@@ -7,28 +7,31 @@
 use std::collections::HashMap;
 
 /// KvStore is the memory store
+#[derive(Default)]
 pub struct KvStore {
-    map: HashMap<String, String>
+    map: HashMap<String, String>,
 }
 
 /// KvStore methods
 impl KvStore {
     /// creates a new instance of the memory store
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     ///  let mut kvs = kvs::KvStore::new();
     /// // your logic here
     /// ```
     pub fn new() -> Self {
-        KvStore { map: HashMap::new() }
+        KvStore {
+            map: HashMap::new(),
+        }
     }
 
     /// insert the key value pair in memory
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// let mut kvs = kvs::KvStore::new();
     /// let key = "key".to_owned();
@@ -40,21 +43,21 @@ impl KvStore {
     }
 
     /// get the value by key
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// let mut kvs = kvs::KvStore::new();
     /// let val = "val".to_owned();
     /// kvs.get(val.to_owned());
     /// ```
     pub fn get(&self, key: String) -> Option<String> {
-       let ans = self.map.get(&key);
-       ans.to_owned().cloned()
+        let ans = self.map.get(&key);
+        ans.to_owned().cloned()
     }
 
     /// remove a key value pair, accepts key
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// let mut kvs = kvs::KvStore::new();
