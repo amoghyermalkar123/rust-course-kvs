@@ -17,13 +17,13 @@ fn main() {
         .subcommand(Command::new("rm").arg(Arg::new("key")))
         .get_matches();
 
-    let mut kvs = kvs::KvStore::new();
+    let mut kvs = kvs::KvStore::new().expect("db creation failed");
 
     match m.subcommand() {
         Some(("set", cmd)) => {
             if let Some(key) = cmd.get_one::<String>("key") {
                 if let Some(val) = cmd.get_one::<String>("value") {
-                    kvs.set(key.to_owned(), val.to_owned())
+                    kvs.set(key.to_owned(), val.to_owned());
                 } else {
                     println!("{}", about)
                 }
@@ -31,7 +31,11 @@ fn main() {
         }
         Some(("get", cmd)) => {
             if let Some(val) = cmd.get_one::<String>("key") {
-                kvs.get(val.to_owned());
+                if let Some(val) = kvs.get(val.to_owned()) {
+                    println!("value: {}", val);
+                } else {
+                    println!("empty")
+                }
             }
         }
         Some(("rm", cmd)) => {
