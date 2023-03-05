@@ -6,9 +6,10 @@
 
 mod db;
 mod wal;
+mod constants;
+use db::Meta;
 use db::DB;
 use std::collections::HashMap;
-use db::Meta;
 
 /// KvStore is the memory store
 pub struct KvStore {
@@ -28,6 +29,7 @@ impl KvStore {
     /// ```
     pub fn new() -> anyhow::Result<Self> {
         let db = DB::new()?;
+        db.load_indexes(HashMap::new())?;
         Ok(KvStore {
             map: HashMap::new(),
             db,
@@ -45,11 +47,12 @@ impl KvStore {
     /// kvs.set(key.to_owned(), val.to_owned())
     /// ```
     pub fn set(&mut self, key: String, val: String) -> anyhow::Result<()> {
-        let encoded_log = wal::WALEntry::encode_entry(wal::WALEntry {
+        let meta = self.db.insert(wal::WALEntry {
+            key_size: key.as_bytes().len(),
+            value_size: val.as_bytes().len(),
             key: key.as_bytes(),
             value: val.as_bytes(),
         })?;
-        let meta = self.db.insert(encoded_log)?;
         self.map.insert(key, meta);
         Ok(())
     }

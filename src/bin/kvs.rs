@@ -23,7 +23,14 @@ fn main() {
         Some(("set", cmd)) => {
             if let Some(key) = cmd.get_one::<String>("key") {
                 if let Some(val) = cmd.get_one::<String>("value") {
-                    kvs.set(key.to_owned(), val.to_owned());
+                    match kvs.set(key.to_owned(), val.to_owned()) {
+                        Ok(_) => {
+                            println!("record inserted successfully")
+                        },
+                        Err(e) => {
+                            println!("encountered following error: {}", e.root_cause())
+                        }
+                    }
                 } else {
                     println!("{}", about)
                 }
