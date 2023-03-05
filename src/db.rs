@@ -1,10 +1,13 @@
-use std::{fs::File, os::unix::prelude::FileExt, path::Path, str::from_utf8};
-
+use crate::constants::{KEY_SIZE, VALUE_SIZE};
+use crate::wal::{WALEntry, self};
 use anyhow::Ok;
+use std::os::unix::prelude::PermissionsExt;
+use std::{collections::HashMap, fs::File, os::unix::prelude::FileExt, path::Path, str::from_utf8};
+use bytes::{BytesMut, BufMut, Bytes};
 
 pub struct Meta {
-    value_sz: u8,
     value_pos: u64,
+    value_sz: u8,
 }
 
 pub struct DB {
@@ -13,30 +16,57 @@ pub struct DB {
 }
 
 impl DB {
+    pub fn load_indexes(&self, index_map: HashMap<String, Meta>) -> anyhow::Result<()> {
+        let mut prefix_buffer = [0u8; KEY_SIZE+VALUE_SIZE];
+        let read_count = self.db.read_at(&mut prefix_buffer, 0)?;
+        let key_sz = prefix_buffer[..KEY_SIZE].len();
+        let val_sz = prefix_buffer[KEY_SIZE..].len();
+        let value = from_utf8(&prefix_buffer[VALUE_SIZE..])?;
+        println!("k_sz, v_sz and value : {} {} {}", key_sz, val_sz, value);
+        Ok(())
+    }
+
     pub fn new() -> Result<Self, anyhow::Error> {
         let path = Path::new("our.db");
-        let file = File::create(&path)?;
+        let file = File::open(path)?;
+        let mut perms = file.metadata()?.permissions();
+        perms.set_mode(0o644);
+        file.set_permissions(perms)?;
         return Ok(DB {
             db: file,
             write_at: 0,
         });
     }
 
-    pub fn insert(&mut self, buf: Vec<u8>) -> anyhow::Result<Meta> {
-        let bytes_written = self.db.write_at(buf.as_ref(), self.write_at)?;
+    // TODO: correct this method.
+    pub fn insert(&mut self, wal_record: WALEntry) -> anyhow::Result<Meta> {
+        let value_sz = wal_record.value_size as u8;
+        let mut prefix_buffer = BytesMut::with_capacity(KEY_SIZE+VALUE_SIZE);
+        prefix_buffer.put_u32(wal_record.key_size as u32);
+        prefix_buffer.put_u64(wal_record.value_size as u64);
+        let mut encoded_buffer = BytesMut::new();
+        encoded_buffer.put_slice(&prefix_buffer);
+        encoded_buffer.put_slice(wal_record.key);
+        encoded_buffer.put_slice(wal_record.value);
+        let bytes_written = self.db.write_at(&encoded_buffer, self.write_at)?;
+        println!("bytes written {}", bytes_written);
         // TODO: make this atomic
-        let new_offset = self.write_at + bytes_written as u64;
-        Ok(Meta { value_sz: buf.len() as u8, value_pos: new_offset })
+        let old_offset = self.write_at;
+        self.write_at = self.write_at + bytes_written as u64;
+        let meta = Meta {
+            value_pos: old_offset,
+            value_sz,
+        };
+        Ok(meta)
     }
 
     pub fn get(&self, meta: &Meta) -> anyhow::Result<String> {
-        let mut buf = [0u8, meta.value_sz];
-        let read_count = self.db.read_at(&mut buf, meta.value_pos)?;
-        if read_count as u8 != meta.value_sz {
-            println!("WTF");
-            Err(anyhow::Error::msg("weird shit happened"))
-        } else {
-            Ok(from_utf8(&buf).unwrap().to_owned())
-        }
+        let mut prefix_buffer = [0u8, KEY_SIZE as u8 + VALUE_SIZE as u8];
+        let read_count = self.db.read_at(&mut prefix_buffer, meta.value_pos)?;
+        let key_sz = prefix_buffer[..KEY_SIZE].len();
+        let val_sz = prefix_buffer[KEY_SIZE..].len();
+        let value = from_utf8(&prefix_buffer[VALUE_SIZE..])?;
+        println!("k_sz, v_sz and value : {} {} {}", key_sz, val_sz, value);
+        Ok(value.to_owned())
     }
 }
