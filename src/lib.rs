@@ -28,8 +28,8 @@ impl KvStore {
     /// // your logic here
     /// ```
     pub fn new() -> anyhow::Result<Self> {
-        let db = DB::new()?;
-        db.load_indexes(HashMap::new())?;
+        let mut db = DB::new()?;
+        // db.load_indexes(HashMap::new())?;
         Ok(KvStore {
             map: HashMap::new(),
             db,

@@ -1,9 +1,11 @@
 use crate::constants::{KEY_SIZE, VALUE_SIZE};
-use crate::wal::{WALEntry, self};
+use crate::wal::{self, WALEntry};
 use anyhow::Ok;
+use bytes::{BufMut, Bytes, BytesMut};
+use std::fs::OpenOptions;
+use std::io::{SeekFrom, Write};
 use std::os::unix::prelude::PermissionsExt;
 use std::{collections::HashMap, fs::File, os::unix::prelude::FileExt, path::Path, str::from_utf8};
-use bytes::{BytesMut, BufMut, Bytes};
 
 pub struct Meta {
     value_pos: u64,
@@ -17,7 +19,7 @@ pub struct DB {
 
 impl DB {
     pub fn load_indexes(&self, index_map: HashMap<String, Meta>) -> anyhow::Result<()> {
-        let mut prefix_buffer = [0u8; KEY_SIZE+VALUE_SIZE];
+        let mut prefix_buffer = [0u8; KEY_SIZE + VALUE_SIZE];
         let read_count = self.db.read_at(&mut prefix_buffer, 0)?;
         let key_sz = prefix_buffer[..KEY_SIZE].len();
         let val_sz = prefix_buffer[KEY_SIZE..].len();
@@ -27,21 +29,21 @@ impl DB {
     }
 
     pub fn new() -> Result<Self, anyhow::Error> {
-        let path = Path::new("our.db");
-        let file = File::open(path)?;
-        let mut perms = file.metadata()?.permissions();
-        perms.set_mode(0o644);
-        file.set_permissions(perms)?;
+        let path = Path::new("this.db");
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
         return Ok(DB {
             db: file,
             write_at: 0,
         });
     }
 
-    // TODO: correct this method.
     pub fn insert(&mut self, wal_record: WALEntry) -> anyhow::Result<Meta> {
         let value_sz = wal_record.value_size as u8;
-        let mut prefix_buffer = BytesMut::with_capacity(KEY_SIZE+VALUE_SIZE);
+        let mut prefix_buffer = BytesMut::with_capacity(KEY_SIZE + VALUE_SIZE);
         prefix_buffer.put_u32(wal_record.key_size as u32);
         prefix_buffer.put_u64(wal_record.value_size as u64);
         let mut encoded_buffer = BytesMut::new();
