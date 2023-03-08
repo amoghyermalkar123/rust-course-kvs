@@ -3,10 +3,10 @@ use crate::wal::{self, WALEntry};
 use anyhow::Ok;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{BufMut, Bytes, BytesMut};
-use std::any;
 use std::fs::OpenOptions;
 use std::os::unix::prelude::PermissionsExt;
 use std::str::FromStr;
+use std::{any, fs};
 use std::{collections::HashMap, fs::File, os::unix::prelude::FileExt, path::Path, str::from_utf8};
 
 pub struct Meta {
@@ -24,30 +24,40 @@ impl DB {
         &self,
         mut index_map: HashMap<String, Meta>,
     ) -> anyhow::Result<HashMap<String, Meta>> {
-        let mut prefix_buffer = [0u8; KEY_SIZE + VALUE_SIZE];
-        self.db.read_at(&mut prefix_buffer, 0)?;
-        let mut key_sz = &prefix_buffer[..KEY_SIZE];
-        let act_key_size = key_sz.read_u32::<BigEndian>()?;
+        let mut offset: usize = 0;
+        let file_size = fs::metadata("this.db")?.len();
 
-        let mut val_sz = &prefix_buffer[KEY_SIZE..];
-        let act_val_size = val_sz.read_u64::<BigEndian>()?;
+        loop {
+            let mut prefix_buffer = [0u8; KEY_SIZE + VALUE_SIZE];
+            self.db.read_at(&mut prefix_buffer, offset as u64)?;
+            if offset as u64 == file_size {
+                // EOF
+                break;
+            }
 
-        let buf_len = KEY_SIZE + VALUE_SIZE + (act_key_size as u64 + act_val_size) as usize;
-        let mut complete_buf = vec![0u8; buf_len];
-        self.db.read_at(&mut complete_buf, 0)?;
-        let complete_buf = complete_buf.as_slice();
+            let mut key_sz = &prefix_buffer[..KEY_SIZE];
+            let act_key_size = key_sz.read_u32::<BigEndian>()?;
 
-        let prefix_len = KEY_SIZE + VALUE_SIZE;
-        let till_key = KEY_SIZE + VALUE_SIZE + act_key_size as usize;
-        let key = from_utf8(&complete_buf[prefix_len..till_key])?;
+            let mut val_sz = &prefix_buffer[KEY_SIZE..];
+            let act_val_size = val_sz.read_u64::<BigEndian>()?;
 
-        index_map.insert(
-            String::from_str(key)?,
-            Meta {
-                value_pos: till_key,
-                value_sz: act_val_size,
-            },
-        );
+            let buf_len = KEY_SIZE + VALUE_SIZE + (act_key_size as u64 + act_val_size) as usize;
+            let mut complete_buf = vec![0u8; buf_len];
+            offset = offset + self.db.read_at(&mut complete_buf, offset as u64)?;
+            let complete_buf = complete_buf.as_slice();
+
+            let prefix_len = KEY_SIZE + VALUE_SIZE;
+            let till_key = KEY_SIZE + VALUE_SIZE + act_key_size as usize;
+            let key = from_utf8(&complete_buf[prefix_len..till_key])?;
+
+            index_map.insert(
+                String::from_str(key)?,
+                Meta {
+                    value_pos: till_key,
+                    value_sz: act_val_size,
+                },
+            );
+        }
 
         Ok(index_map)
     }
@@ -60,10 +70,10 @@ impl DB {
             .create(true)
             .truncate(false)
             .open(path)?;
-        return Ok(DB {
-            db: file,
-            write_at: 0,
-        });
+
+        let write_at = fs::metadata(path)?.len();
+
+        return Ok(DB { db: file, write_at });
     }
 
     // TODO: make this atomic
