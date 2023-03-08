@@ -4,9 +4,9 @@
 //! this is the kv store implementation
 //! stores data in memory
 
+mod constants;
 mod db;
 mod wal;
-mod constants;
 use db::Meta;
 use db::DB;
 use std::collections::HashMap;
@@ -28,12 +28,9 @@ impl KvStore {
     /// // your logic here
     /// ```
     pub fn new() -> anyhow::Result<Self> {
-        let mut db = DB::new()?;
-        // db.load_indexes(HashMap::new())?;
-        Ok(KvStore {
-            map: HashMap::new(),
-            db,
-        })
+        let db = DB::new()?;
+        let in_mem_kv = db.load_indexes(HashMap::new())?;
+        Ok(KvStore { map: in_mem_kv, db })
     }
 
     /// insert the key value pair in memory

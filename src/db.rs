@@ -1,15 +1,17 @@
 use crate::constants::{KEY_SIZE, VALUE_SIZE};
 use crate::wal::{self, WALEntry};
 use anyhow::Ok;
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{BufMut, Bytes, BytesMut};
+use std::any;
 use std::fs::OpenOptions;
-use std::io::{SeekFrom, Write};
 use std::os::unix::prelude::PermissionsExt;
+use std::str::FromStr;
 use std::{collections::HashMap, fs::File, os::unix::prelude::FileExt, path::Path, str::from_utf8};
 
 pub struct Meta {
-    value_pos: u64,
-    value_sz: u8,
+    value_pos: usize,
+    value_sz: u64,
 }
 
 pub struct DB {
@@ -18,20 +20,43 @@ pub struct DB {
 }
 
 impl DB {
-    pub fn load_indexes(&self, index_map: HashMap<String, Meta>) -> anyhow::Result<()> {
+    pub fn load_indexes(
+        &self,
+        mut index_map: HashMap<String, Meta>,
+    ) -> anyhow::Result<HashMap<String, Meta>> {
         let mut prefix_buffer = [0u8; KEY_SIZE + VALUE_SIZE];
-        let read_count = self.db.read_at(&mut prefix_buffer, 0)?;
-        let key_sz = prefix_buffer[..KEY_SIZE].len();
-        let val_sz = prefix_buffer[KEY_SIZE..].len();
-        let value = from_utf8(&prefix_buffer[VALUE_SIZE..])?;
-        println!("k_sz, v_sz and value : {} {} {}", key_sz, val_sz, value);
-        Ok(())
+        self.db.read_at(&mut prefix_buffer, 0)?;
+        let mut key_sz = &prefix_buffer[..KEY_SIZE];
+        let act_key_size = key_sz.read_u32::<BigEndian>()?;
+
+        let mut val_sz = &prefix_buffer[KEY_SIZE..];
+        let act_val_size = val_sz.read_u64::<BigEndian>()?;
+
+        let buf_len = KEY_SIZE + VALUE_SIZE + (act_key_size as u64 + act_val_size) as usize;
+        let mut complete_buf = vec![0u8; buf_len];
+        self.db.read_at(&mut complete_buf, 0)?;
+        let complete_buf = complete_buf.as_slice();
+
+        let prefix_len = KEY_SIZE + VALUE_SIZE;
+        let till_key = KEY_SIZE + VALUE_SIZE + act_key_size as usize;
+        let key = from_utf8(&complete_buf[prefix_len..till_key])?;
+
+        index_map.insert(
+            String::from_str(key)?,
+            Meta {
+                value_pos: till_key,
+                value_sz: act_val_size,
+            },
+        );
+
+        Ok(index_map)
     }
 
     pub fn new() -> Result<Self, anyhow::Error> {
         let path = Path::new("this.db");
         let file = OpenOptions::new()
             .write(true)
+            .read(true)
             .create(true)
             .truncate(false)
             .open(path)?;
@@ -41,34 +66,38 @@ impl DB {
         });
     }
 
+    // TODO: make this atomic
     pub fn insert(&mut self, wal_record: WALEntry) -> anyhow::Result<Meta> {
-        let value_sz = wal_record.value_size as u8;
-        let mut prefix_buffer = BytesMut::with_capacity(KEY_SIZE + VALUE_SIZE);
-        prefix_buffer.put_u32(wal_record.key_size as u32);
-        prefix_buffer.put_u64(wal_record.value_size as u64);
+        let mut pref_buf = vec![];
+        pref_buf.write_u32::<BigEndian>(wal_record.key_size as u32)?;
+        pref_buf.write_u64::<BigEndian>(wal_record.value_size as u64)?;
+
         let mut encoded_buffer = BytesMut::new();
-        encoded_buffer.put_slice(&prefix_buffer);
+        encoded_buffer.put_slice(&pref_buf);
         encoded_buffer.put_slice(wal_record.key);
         encoded_buffer.put_slice(wal_record.value);
+
         let bytes_written = self.db.write_at(&encoded_buffer, self.write_at)?;
-        println!("bytes written {}", bytes_written);
-        // TODO: make this atomic
-        let old_offset = self.write_at;
         self.write_at = self.write_at + bytes_written as u64;
+
+        let till_key = KEY_SIZE + VALUE_SIZE + wal_record.key_size;
+
         let meta = Meta {
-            value_pos: old_offset,
-            value_sz,
+            value_pos: till_key,
+            value_sz: wal_record.value_size as u64,
         };
+
         Ok(meta)
     }
 
     pub fn get(&self, meta: &Meta) -> anyhow::Result<String> {
-        let mut prefix_buffer = [0u8, KEY_SIZE as u8 + VALUE_SIZE as u8];
-        let read_count = self.db.read_at(&mut prefix_buffer, meta.value_pos)?;
-        let key_sz = prefix_buffer[..KEY_SIZE].len();
-        let val_sz = prefix_buffer[KEY_SIZE..].len();
-        let value = from_utf8(&prefix_buffer[VALUE_SIZE..])?;
-        println!("k_sz, v_sz and value : {} {} {}", key_sz, val_sz, value);
-        Ok(value.to_owned())
+        let mut value_buf = vec![0u8; meta.value_sz as usize];
+        let read_count = self.db.read_at(&mut value_buf, meta.value_pos as u64)?;
+        if read_count != meta.value_sz as usize {
+            Err(anyhow::Error::msg("something went weirdly wrong"))
+        } else {
+            let value = from_utf8(&value_buf)?;
+            Ok(value.to_owned())
+        }
     }
 }
