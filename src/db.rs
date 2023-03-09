@@ -43,6 +43,7 @@ impl DB {
 
             let buf_len = KEY_SIZE + VALUE_SIZE + (act_key_size as u64 + act_val_size) as usize;
             let mut complete_buf = vec![0u8; buf_len];
+            let old_offset = offset;
             offset = offset + self.db.read_at(&mut complete_buf, offset as u64)?;
             let complete_buf = complete_buf.as_slice();
 
@@ -53,7 +54,7 @@ impl DB {
             index_map.insert(
                 String::from_str(key)?,
                 Meta {
-                    value_pos: till_key,
+                    value_pos: old_offset + till_key,
                     value_sz: act_val_size,
                 },
             );
@@ -72,13 +73,13 @@ impl DB {
             .open(path)?;
 
         let write_at = fs::metadata(path)?.len();
-
         return Ok(DB { db: file, write_at });
     }
 
     // TODO: make this atomic
     pub fn insert(&mut self, wal_record: WALEntry) -> anyhow::Result<Meta> {
         let mut pref_buf = vec![];
+        println!("ksz vsz: {} {}", wal_record.key_size, wal_record.value_size);
         pref_buf.write_u32::<BigEndian>(wal_record.key_size as u32)?;
         pref_buf.write_u64::<BigEndian>(wal_record.value_size as u64)?;
 
@@ -86,12 +87,17 @@ impl DB {
         encoded_buffer.put_slice(&pref_buf);
         encoded_buffer.put_slice(wal_record.key);
         encoded_buffer.put_slice(wal_record.value);
-
+        println!("b:{:?}", encoded_buffer.len());
         let bytes_written = self.db.write_at(&encoded_buffer, self.write_at)?;
+
+        println!(
+            "wrote at {:?}, rel val pos at {}",
+            self.write_at,
+            KEY_SIZE + VALUE_SIZE + wal_record.key_size
+        );
+
         self.write_at = self.write_at + bytes_written as u64;
-
         let till_key = KEY_SIZE + VALUE_SIZE + wal_record.key_size;
-
         let meta = Meta {
             value_pos: till_key,
             value_sz: wal_record.value_size as u64,
@@ -102,6 +108,7 @@ impl DB {
 
     pub fn get(&self, meta: &Meta) -> anyhow::Result<String> {
         let mut value_buf = vec![0u8; meta.value_sz as usize];
+        println!("read at:{}", meta.value_pos);
         let read_count = self.db.read_at(&mut value_buf, meta.value_pos as u64)?;
         if read_count != meta.value_sz as usize {
             Err(anyhow::Error::msg("something went weirdly wrong"))
