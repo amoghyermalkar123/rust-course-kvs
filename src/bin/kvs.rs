@@ -47,7 +47,11 @@ fn main() {
         }
         Some(("rm", cmd)) => {
             if let Some(key) = cmd.get_one::<String>("key") {
-                kvs.remove(key.to_owned());
+                if let Ok(_) = kvs.remove(key.to_owned()) {
+                    println!("key deleted");
+                } else {
+                    println!("failed to delete key")
+                }
             }
         }
         _ => {

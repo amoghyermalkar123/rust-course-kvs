@@ -1,6 +1,5 @@
 use crate::constants::{KEY_SIZE, VALUE_SIZE};
 use crate::wal::{self, WALEntry};
-use anyhow::Ok;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{BufMut, Bytes, BytesMut};
 use std::fs::OpenOptions;
@@ -104,6 +103,14 @@ impl DB {
         };
 
         Ok(meta)
+    }
+
+    pub fn del(&mut self, wal_record: WALEntry) -> anyhow::Result<()> {
+        if let Ok(_) = self.insert(wal_record)  {
+            Ok(())
+        } else {
+            Err(anyhow::Error::msg("del failed"))
+        }
     }
 
     pub fn get(&self, meta: &Meta) -> anyhow::Result<String> {

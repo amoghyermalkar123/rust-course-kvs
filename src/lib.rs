@@ -3,7 +3,6 @@
 
 //! this is the kv store implementation
 //! stores data in memory
-
 mod constants;
 mod db;
 mod wal;
@@ -79,7 +78,14 @@ impl KvStore {
     /// let key = "key".to_owned();
     /// kvs.remove(key.to_owned());
     /// ```
-    pub fn remove(&mut self, key: String) {
+    pub fn remove(&mut self, key: String) -> anyhow::Result<()> {
+        self.db.del(wal::WALEntry {
+            key_size: key.as_bytes().len(),
+            value_size: 0,
+            key: key.as_bytes(),
+            value: "".as_bytes(),
+        })?;
         self.map.remove(&key);
+        Ok(())
     }
 }
